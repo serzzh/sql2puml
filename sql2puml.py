@@ -1,4 +1,4 @@
-import pyodbc
+# import pyodbc
 import sys
 import getopt
 
@@ -6,6 +6,7 @@ from tabledef import Tabledef
 from columndef import Columndef
 from relationdef import Relationdef
 
+"""
 def Connect(driverOverride, server, host, port, dbname, username, password):
 
     if server == 'mssql':
@@ -37,7 +38,7 @@ def Connect(driverOverride, server, host, port, dbname, username, password):
 
 def Disconnect(connection) -> None:
     connection.close()
-
+"""
 
 def EmitPumlHeader(dbname, zerorows):
     print(f'@startuml {dbname}\n')
@@ -114,7 +115,7 @@ def printStderr(*a):
 	# passed as the arguement of the function 
 	print(*a, file = sys.stderr) 
 
-
+"""
 def PrintUsage():
     printStderr('Usage: python sql2puml.py OPTIONS [FILE]')
     printStderr('OPTIONS')    
@@ -130,8 +131,59 @@ def PrintUsage():
     printStderr('\t[-z, --zerorows <mode>]\tSupply one of show, hide, remove. Default is None, i.e., empty tables appear normally')
     printStderr('\nExample: python sql2puml.py -server localhost -port 1433 -dbname pubs -schema dbo')
 
+"""
+
+# Redifine init class method for reference type definition (one-one, one-many, many-one, etc)
+class MyRel(Relationdef):
+
+   def __IsOne(self, table, col):
+       return False
+       
+
+   def __init__(self, name:str, primaryTable, primaryColumn:Columndef, foreignTable, foreignColumn:Columndef):
+        self.Name = name
+        self.PrimaryTable = primaryTable
+        self.PrimaryColumn = primaryColumn
+        self.ForeignTable = foreignTable
+        self.ForeignColumn = foreignColumn
+        self.PumlRelation = ''
+
+        # Work out the relatioship type
+        # Zero or One   |o--    --o|
+        # Exactly One   ||--    --||
+        # Zero or Many  }o--    --o{
+        # One or Many   }|--    --|{
+
+
+        # Find out if the relationship is mandatory "|" or optional "o" at either end
+        if primaryColumn.IsMandatory:
+            pmin = '|'
+        else:
+            pmin = 'o'
+
+        if self.__IsOne(primaryTable, primaryColumn):
+            pmax = '|'
+        else:
+            pmax = '}'
+
+        primary = pmax + pmin
+
+        if foreignColumn.IsMandatory:
+            fmin = '|'
+        else:
+            fmin =  'o'
+
+        if self.__IsOne(foreignTable, foreignColumn):
+            fmax = '|'
+        else:
+            fmax = '|'
+
+        foreign = fmin + fmax
+        self.PumlRelation = primary + '--' + foreign
+        
 
 def main(argv) -> None:
+    """
     server = 'mssql'
     host = 'localhost'
     port = '1433'
@@ -145,6 +197,7 @@ def main(argv) -> None:
     driver = ''
     zerorows = None
     colnames = False
+
 
     try:
         opts, args = getopt.getopt(argv, 'S:d:s:h:p:o:u:P:D:z:n', ['server=','database=','schema=','host=','port=','out=','user=','password=','driver=','zerorows=','names'])
@@ -186,6 +239,7 @@ def main(argv) -> None:
         if server == 'mssql' and schema == '':
             schema = 'dbo'
 
+
         conn = Connect(driver, server, host, port, dbname, username, password)
         tables = Tabledef.Get(conn, schema)
         EmitPumlHeader(dbname, zerorows)
@@ -195,8 +249,8 @@ def main(argv) -> None:
         for name, table in tables.items():
             EmitRelations(conn, table, colnames)
 
-        EmitPumlFooter()
-
+        EmitPumlFooter()      
+        
     except getopt.GetoptError:
         PrintUsage()
 
@@ -212,6 +266,88 @@ def main(argv) -> None:
 
         if conn != None:
             Disconnect(conn)
+    """
+
+    # New code from here
+    import os, csv, json
+
+    path = "input"
+    filename = "data-1747928079775.csv"
+
+    my_file = os.path.join(path, filename)
+
+    with open(my_file, 'r') as file:
+        tables = {}
+        csv_reader = csv.reader(file)
+        next(csv_reader, None) # Skip csv header
+        for row in csv_reader:
+            # Define table
+            db_name = row[0]
+            tab_name = row[2]
+            col = json.loads(row[4])
+            schema_name = row[1]
+            query_name = row[3]
+
+            if schema_name == "public":
+
+                if tab_name in tables:
+                    table = tables[tab_name]
+                else:
+                    table = Tabledef(tab_name)
+                    tables[tab_name] = table
+                    table.Columns = {}
+                # Fill table data
+
+                if col["column_name"] not in table.Columns:
+                    table.Columns[col["column_name"]] = Columndef(col["column_name"], 1, "undef", 0, tab_name)
+                    column = table.Columns[col["column_name"]]
+                    column.Name = col["column_name"]
+                    column.Datatype = col["datatype"]
+                    column.IsMandatory = True if col["is_required"] == "NOT NULL" else False
+                    column.IsKey = True if col["FK"] == "FK" or col["PK"] == "PK" else False
+                    column.IsUnique = True if col["PK"] == "PK" else False
+                    column.IsCompositeKey = False  # True if this column is part of a composite primary key
+                    column.Parent = ''
+                
+
+    with open(my_file, 'r') as file:
+        csv_reader = csv.reader(file)
+        next(csv_reader, None) # Skip csv header
+        for row in csv_reader:
+            # Define table
+            db_name = row[0]
+            tab_name = row[2]
+            col = json.loads(row[4])
+            schema_name = row[1]
+            query_name = row[3]
+
+            if schema_name == "public":
+                # Relationships
+                if query_name == "2_fks":
+                    if col["constraint_name"] not in table.Relationships and col["constraint_type"] == "FOREIGN KEY":
+                        _ftn = col["foreign_table_name"]
+                        print(tab_name, col["constraint_name"], _ftn)
+                        tables[tab_name].Relationships[col["constraint_name"]] = MyRel(
+                            # connectionCursor = "",
+                            name = col["constraint_name"], 
+                            primaryTable = tables[tab_name],
+                            primaryColumn = tables[tab_name].Columns[col["column_name"]],        
+                            foreignTable = tables[_ftn],
+                            foreignColumn = tables[_ftn].Columns[col["foreign_column_name"]],
+                            )
+
+    EmitPumlHeader(db_name, False)
+
+    for name, table in tables.items():
+        EmitTable("", table)
+
+    for name, table in tables.items():
+        EmitRelations("", table, True)
+
+    EmitPumlFooter()
+
+    # End new code      
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])
