@@ -271,83 +271,94 @@ def main(argv) -> None:
     # New code from here
     import os, csv, json
 
-    path = "input"
-    filename = "data-1747928079775.csv"
+    input_dir = "input"
+    files = ["data-1747922431963.csv", "data-1747928079775.csv"]
+    output_dir = "output"
 
-    my_file = os.path.join(path, filename)
+    for filename in files:
 
-    with open(my_file, 'r') as file:
-        tables = {}
-        csv_reader = csv.reader(file)
-        next(csv_reader, None) # Skip csv header
-        for row in csv_reader:
-            # Define table
-            db_name = row[0]
-            tab_name = row[2]
-            col = json.loads(row[4])
-            schema_name = row[1]
-            query_name = row[3]
+        input_file = os.path.join(input_dir, filename)
 
-            if schema_name == "public":
+        with open(input_file, 'r') as file:
+            tables = {}
+            csv_reader = csv.reader(file)
+            next(csv_reader, None) # Skip csv header
+            for row in csv_reader:
+                # Define table
+                db_name = row[0]
+                tab_name = row[2]
+                col = json.loads(row[4])
+                schema_name = row[1]
+                query_name = row[3]
 
-                if tab_name in tables:
-                    table = tables[tab_name]
-                else:
-                    table = Tabledef(tab_name)
-                    tables[tab_name] = table
-                    table.Columns = {}
-                # Fill table data
+                if schema_name == "public":
 
-                if col["column_name"] not in table.Columns:
-                    table.Columns[col["column_name"]] = Columndef(col["column_name"], 1, "undef", 0, tab_name)
-                    column = table.Columns[col["column_name"]]
-                    column.Name = col["column_name"]
-                    column.Datatype = col["datatype"]
-                    column.IsMandatory = True if col["is_required"] == "NOT NULL" else False
-                    column.IsKey = True if col["FK"] == "FK" or col["PK"] == "PK" else False
-                    column.IsUnique = True if col["PK"] == "PK" else False
-                    column.IsCompositeKey = False  # True if this column is part of a composite primary key
-                    column.Parent = ''
-                
+                    if tab_name in tables:
+                        table = tables[tab_name]
+                    else:
+                        table = Tabledef(tab_name)
+                        tables[tab_name] = table
+                        table.Columns = {}
+                    # Fill table data
 
-    with open(my_file, 'r') as file:
-        csv_reader = csv.reader(file)
-        next(csv_reader, None) # Skip csv header
-        for row in csv_reader:
-            # Define table
-            db_name = row[0]
-            tab_name = row[2]
-            col = json.loads(row[4])
-            schema_name = row[1]
-            query_name = row[3]
+                    if col["column_name"] not in table.Columns:
+                        table.Columns[col["column_name"]] = Columndef(col["column_name"], 1, "undef", 0, tab_name)
+                        column = table.Columns[col["column_name"]]
+                        column.Name = col["column_name"]
+                        column.Datatype = col["datatype"]
+                        column.IsMandatory = True if col["is_required"] == "NOT NULL" else False
+                        column.IsKey = True if col["FK"] == "FK" or col["PK"] == "PK" else False
+                        column.IsUnique = True if col["PK"] == "PK" else False
+                        column.IsCompositeKey = False  # True if this column is part of a composite primary key
+                        column.Parent = ''
+                    
 
-            if schema_name == "public":
-                # Relationships
-                if query_name == "2_fks":
-                    if col["constraint_name"] not in table.Relationships and col["constraint_type"] == "FOREIGN KEY":
-                        _ftn = col["foreign_table_name"]
-                        print(tab_name, col["constraint_name"], _ftn)
-                        tables[tab_name].Relationships[col["constraint_name"]] = MyRel(
-                            # connectionCursor = "",
-                            name = col["constraint_name"], 
-                            primaryTable = tables[tab_name],
-                            primaryColumn = tables[tab_name].Columns[col["column_name"]],        
-                            foreignTable = tables[_ftn],
-                            foreignColumn = tables[_ftn].Columns[col["foreign_column_name"]],
-                            )
+        with open(input_file, 'r') as file:
+            csv_reader = csv.reader(file)
+            next(csv_reader, None) # Skip csv header
+            for row in csv_reader:
+                # Define table
+                db_name = row[0]
+                tab_name = row[2]
+                col = json.loads(row[4])
+                schema_name = row[1]
+                query_name = row[3]
 
-    EmitPumlHeader(db_name, False)
+                if schema_name == "public":
+                    # Relationships
+                    if query_name == "2_fks":
+                        if col["constraint_name"] not in table.Relationships and col["constraint_type"] == "FOREIGN KEY":
+                            _ftn = col["foreign_table_name"]
+                            print(tab_name, col["constraint_name"], _ftn)
+                            tables[tab_name].Relationships[col["constraint_name"]] = MyRel(
+                                # connectionCursor = "",
+                                name = col["constraint_name"], 
+                                primaryTable = tables[tab_name],
+                                primaryColumn = tables[tab_name].Columns[col["column_name"]],        
+                                foreignTable = tables[_ftn],
+                                foreignColumn = tables[_ftn].Columns[col["foreign_column_name"]],
+                                )
 
-    for name, table in tables.items():
-        EmitTable("", table)
+        
+        base_name, _ = os.path.splitext(filename)
+        output_file = base_name + ".puml"
 
-    for name, table in tables.items():
-        EmitRelations("", table, True)
+        if output_file != '':            
+            original_stdout = sys.stdout
+            fileHandle = open(os.path.join(output_dir, output_file) , 'w')                # Change the standard output to filename
+            sys.stdout = fileHandle
+        
+        EmitPumlHeader(db_name, False)
 
-    EmitPumlFooter()
+        for name, table in tables.items():
+            EmitTable("", table)
 
-    # End new code      
+        for name, table in tables.items():
+            EmitRelations("", table, True)
 
+        EmitPumlFooter()
+
+        # End new code      
 
 if __name__ == '__main__':
     main(sys.argv[1:])
