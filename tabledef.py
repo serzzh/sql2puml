@@ -1,4 +1,4 @@
-import pyodbc
+# import pyodbc
 from columndef import Columndef
 from relationdef import Relationdef
 

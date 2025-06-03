@@ -1,4 +1,4 @@
-import pyodbc
+# import pyodbc
 from columndef import Columndef
 class Relationdef:
     Name = ''               # Name of the relation

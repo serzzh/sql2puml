@@ -161,7 +161,7 @@ class MyRel(Relationdef):
         else:
             pmin = 'o'
 
-        if self.__IsOne(primaryTable, primaryColumn):
+        if primaryColumn.IsKey:
             pmax = '|'
         else:
             pmax = '}'
@@ -173,7 +173,7 @@ class MyRel(Relationdef):
         else:
             fmin =  'o'
 
-        if self.__IsOne(foreignTable, foreignColumn):
+        if primaryColumn.IsKey:
             fmax = '|'
         else:
             fmax = '|'
@@ -181,6 +181,9 @@ class MyRel(Relationdef):
         foreign = fmin + fmax
         self.PumlRelation = primary + '--' + foreign
         
+def schema_filter(x):
+    return not x.startswith("pg_")
+
 
 def main(argv) -> None:
     """
@@ -272,16 +275,28 @@ def main(argv) -> None:
     import os, csv, json
 
     input_dir = "input"
-    files = ["data-1747922431963.csv", "data-1747928079775.csv"]
+    files = os.listdir(input_dir)
+    print (files)
+
     output_dir = "output"
+    db_structure = []
+
+    filter_file = "filter/db_structure_new.csv"
+    # Read table for filtering
+    with open(filter_file, 'r') as ffile:
+        filter_table = {}
+        csv_reader = csv.reader(ffile, delimiter=";")
+        next(csv_reader, None) # Skip csv header    
+        for row in csv_reader:
+            filter_table[row[2]] = row[5]
 
     for filename in files:
 
         input_file = os.path.join(input_dir, filename)
 
-        with open(input_file, 'r') as file:
+        with open(input_file, 'r') as mfile:
             tables = {}
-            csv_reader = csv.reader(file)
+            csv_reader = csv.reader(mfile)
             next(csv_reader, None) # Skip csv header
             for row in csv_reader:
                 # Define table
@@ -291,15 +306,19 @@ def main(argv) -> None:
                 schema_name = row[1]
                 query_name = row[3]
 
-                if schema_name == "public":
 
+                if schema_filter(schema_name) and not filter_table[tab_name]:
+                    
+                    
+                    # Write table data to objects                   
                     if tab_name in tables:
                         table = tables[tab_name]
                     else:
                         table = Tabledef(tab_name)
                         tables[tab_name] = table
                         table.Columns = {}
-                    # Fill table data
+                    
+ 
 
                     if col["column_name"] not in table.Columns:
                         table.Columns[col["column_name"]] = Columndef(col["column_name"], 1, "undef", 0, tab_name)
@@ -307,10 +326,28 @@ def main(argv) -> None:
                         column.Name = col["column_name"]
                         column.Datatype = col["datatype"]
                         column.IsMandatory = True if col["is_required"] == "NOT NULL" else False
-                        column.IsKey = True if col["FK"] == "FK" or col["PK"] == "PK" else False
+                        column.IsKey = True if col["PK"] == "PK" else False
                         column.IsUnique = True if col["PK"] == "PK" else False
                         column.IsCompositeKey = False  # True if this column is part of a composite primary key
                         column.Parent = ''
+
+                        # Update db infostructure 
+                        db_structure.append([
+                            db_name, 
+                            schema_name, 
+                            tab_name,
+                            col["table_comment"], 
+                            column.Name,
+                            col["column_comment"], 
+                            column.Datatype,
+                            column.IsMandatory,
+                            column.IsKey,
+                            column.IsUnique
+                            ]
+                        )
+                    
+                    table.Columns = dict(sorted(table.Columns.items(), key=lambda item: item[1].IsKey, reverse=True))
+
                     
 
         with open(input_file, 'r') as file:
@@ -324,12 +361,12 @@ def main(argv) -> None:
                 schema_name = row[1]
                 query_name = row[3]
 
-                if schema_name == "public":
+                if schema_filter(schema_name) and not filter_table[tab_name]:
                     # Relationships
                     if query_name == "2_fks":
-                        if col["constraint_name"] not in table.Relationships and col["constraint_type"] == "FOREIGN KEY":
+                        if col["constraint_name"] not in table.Relationships and col["constraint_type"] == "FOREIGN KEY" and not filter_table[col["foreign_table_name"]]:
                             _ftn = col["foreign_table_name"]
-                            print(tab_name, col["constraint_name"], _ftn)
+                            print(col["constraint_name"], tab_name, col["foreign_table_name"])
                             tables[tab_name].Relationships[col["constraint_name"]] = MyRel(
                                 # connectionCursor = "",
                                 name = col["constraint_name"], 
@@ -340,6 +377,18 @@ def main(argv) -> None:
                                 )
 
         
+        # Remove id-parent_id
+
+        # Remove h-relations
+        
+        # Remove h-tables
+
+
+
+        # Remove field attributes table
+        
+        
+        # Output to PlantUML
         base_name, _ = os.path.splitext(filename)
         output_file = base_name + ".puml"
 
@@ -358,7 +407,33 @@ def main(argv) -> None:
 
         EmitPumlFooter()
 
-        # End new code      
+
+    # Save database infostructure to CSV
+
+    db_structure_file =  os.path.join(output_dir, "db_structure.csv")
+    fields = [
+        "db_name", 
+        "schema_name", 
+        "table_name",
+        "table_comment", 
+        "column_name",
+        "column_comment", 
+        "column_datatype",
+        "column_isMandatory",
+        "column_isKey",
+        "column_isUnique"       
+    ]
+
+    with open(db_structure_file, 'w') as f:
+        
+        # using csv.writer method from CSV package
+        write = csv.writer(f)
+        
+        write.writerow(fields)
+        write.writerows(db_structure)
+    
+    # End new code      
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

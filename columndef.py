@@ -1,4 +1,4 @@
-import pyodbc
+# import pyodbc
 
 
 class Columndef:
@@ -15,7 +15,9 @@ class Columndef:
         self.Name = name
         self.IsMandatory = mandatory
 
+        
         # Dictonary of {numeric datatype, [text name, has length]}
+        """
         switcher = {
             pyodbc.SQL_CHAR:['char',True],
             pyodbc.SQL_VARCHAR:['varchar',True],
@@ -57,6 +59,7 @@ class Columndef:
             pyodbc.SQL_GUID:['guid',False]
         }
         dataTypeInfo = switcher.get(datatype, "Invalid day of week")
+          
 
         if dataTypeInfo[1]:
             # Column type with a length such as varchar
@@ -64,6 +67,7 @@ class Columndef:
         else:
             # Atomic, no size
             self.Datatype = dataTypeInfo[0]
+        """
 
         self.Parent = parent
         self.IsKey = False
