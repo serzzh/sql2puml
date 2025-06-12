@@ -12,23 +12,21 @@ logger = logging.getLogger(__name__)
 # Redefine table class
 class MyTable(Tabledef):
 
-    def __init__(self, name:str, filename):
+    def __init__(self, name:str, db_name, schema, comment=None, module=None, excl=False, alias_name=None):
         self.Name = name
         self.Columns = {}
         self.Relationships = {}      # Relationdef[]
         self.CompositePK = False    
         self.RowCount = None
-        self.table_del_list = {}
-        self.group = 'default'
-        self.LongName = name
+        # self.table_del_list = {}
+        self.LongName = module + "." + name
         self.has_links = False
-        
-        if filename in dict_prefix.keys():
-            self.LongName = dict_prefix[filename]+'.'+self.Name
-            self.group = ".".join(dict_prefix[filename].split(sep=".")[0:2])
-        else:
-            self.LongName = self.Name
-            # logger.info(self.group)
+        self.AliasName = alias_name
+        self.Excl = excl
+        self.Module = module
+        self.DbName = db_name
+        self.Schema = schema
+        self.Comment = comment
         
     
     def relink_h(self):    
@@ -36,7 +34,7 @@ class MyTable(Tabledef):
 
             # remove h-tables
             if hasattr(rel, 'ForeignTable'):
-                # logger.info(name)
+                # .info(name)
                 if hasattr(rel.ForeignTable, 'Alias') and not rel.ForeignTable.Name.endswith(('_s', '_ss')):
                     self.table_del_list[rel.ForeignTable.Name] = rel.ForeignTable.Alias.Name
                     rel.ForeignTable = rel.ForeignTable.Alias
@@ -66,7 +64,7 @@ class MyTable(Tabledef):
     def del_loop(self):
         del_list = []
         for name, rel in self.Relationships.items():
-            if rel.PrimaryTable.Name == rel.ForeignTable.Name and rel.PrimaryColumn.Name == rel.ForeignColumn.Name:
+            if rel.PrimaryTable.Name == rel.ForeignTable.Name:
                 del_list.append(name)
 
         for name in del_list:
@@ -77,11 +75,9 @@ class MyTable(Tabledef):
         
         for name, rel in self.Relationships.items():
             if rel.PrimaryTable.Name.endswith(('_h', '_hh')):
-                logger.info('start_del_p_side: ' + rel.PrimaryTable.Name)
                 side_links.append(name)
                 self.table_del_list[rel.PrimaryTable.Name] = "side_h_p"
             if rel.ForeignTable.Name.endswith(('_h', '_hh')):
-                logger.info('start_del_f_side: ' + rel.ForeignTable.Name)
                 side_links.append(name)
                 self.table_del_list[rel.ForeignTable.Name] = "side_h_f"
         
@@ -254,34 +250,38 @@ def main(argv) -> None:
 
     output_dir = "output"
     db_structure = []
+    tables = {}       
 
     filter_file = "filter/db_structure_new.csv"
-    # Read table for filtering
+    # Creating table objects according to db_structure file
     with open(filter_file, 'r') as ffile:
-        filter_table = {}
         csv_reader = csv.reader(ffile, delimiter=";")
         next(csv_reader, None) # Skip csv header    
         for row in csv_reader:
-            filter_table[row[2]] = row[5]
+            tables[row[2]] = MyTable(
+                name=row[2],
+                db_name=row[0],
+                schema=row[1],
+                comment=row[3],
+                module=row[5],
+                alias_name=row[8].replace("#N/A", ""))
+            
+            tables[row[2]].Excl = True if row[6]=='X' else False     
 
     
     # only ZIIoT
     ziiot_files = [x for x in files if x.startswith('mes_conf__zif')]
 
-
-
-    
     
     # Output to PlantUML
     # base_name, _ = os.path.splitext(filename)
 
-    tables = {}       
+
     for filename in ziiot_files:
 
         input_file = os.path.join(input_dir, filename)
         base_name, _ = os.path.splitext(filename)
         base_name = base_name.replace("_metadata","")
-        logger.info(base_name)
 
         with open(input_file, 'r') as mfile:
 
@@ -296,16 +296,11 @@ def main(argv) -> None:
                 query_name = row[3]
 
 
-                if schema_filter(schema_name) and not filter_table[tab_name]:
+                if schema_filter(schema_name):
                                        
                     # Write table data to objects                   
                     if tab_name in tables:
                         table = tables[tab_name]
-                    else:
-                        table = MyTable(tab_name, base_name)
-                        tables[tab_name] = table
-                        table.Columns = {}
-                        table.dbName = db_name
 
                     if col["column_name"] not in table.Columns:
                         table.Columns[col["column_name"]] = Columndef(col["column_name"], 1, "undef", 0, tab_name)
@@ -346,82 +341,73 @@ def main(argv) -> None:
                 tab_name = row[2]
                 col = json.loads(row[4])
                 schema_name = row[1]
-                query_name = row[3]
+                query_name = row[3]              
 
-                if schema_filter(schema_name) and not filter_table[tab_name]:
+                if tab_name in tables.keys():
                     # Relationships
-                    if query_name == "2_fks":
-                        if col["constraint_name"] not in table.Relationships and col["constraint_type"] == "FOREIGN KEY" and not filter_table[col["foreign_table_name"]]:
-                            _ftn = col["foreign_table_name"]
+                    table = tables[tab_name]
 
-                            tables[tab_name].Relationships[col["constraint_name"]] = MyRel(
-                                # connectionCursor = "",
+                    if query_name == "2_fks" and (table.Excl is False or tables[tab_name].AliasName):
+                        
+                        table = tables[tab_name] \
+                        if not tables[tab_name].AliasName \
+                            else tables[tables[tab_name].AliasName]
+                        
+                        foreign_table = tables[col["foreign_table_name"]] \
+                        if not tables[col["foreign_table_name"]].AliasName \
+                            else tables[tables[col["foreign_table_name"]].AliasName]
+                        
+                        column = table.Columns[col["column_name"]] \
+                            if col["column_name"] in table.Columns \
+                            else None
+                        
+                        foreign_column = foreign_table.Columns[col["foreign_column_name"]] \
+                            if col["foreign_column_name"] in foreign_table.Columns \
+                            else None
+
+                        if col["constraint_name"] not in table.Relationships and col["constraint_type"] == "FOREIGN KEY" \
+                            and column is not None and foreign_column is not None:
+                            table.Relationships[col["constraint_name"]] = MyRel(
                                 name = col["constraint_name"], 
-                                primaryTable = tables[tab_name],
-                                primaryColumn = tables[tab_name].Columns[col["column_name"]],        
-                                foreignTable = tables[_ftn],
-                                foreignColumn = tables[_ftn].Columns[col["foreign_column_name"]],
-                                # one2one = tables[tab_name].Columns[col["column_name"]].isKey
-                                )
+                                primaryTable = table,
+                                primaryColumn = column,        
+                                foreignTable = foreign_table,
+                                foreignColumn = foreign_column,
+                            )
 
     # Remove field attributes table
+    
+    modules = {}
 
-    del_list = {}
-    table_groups = {}
-    for name, table in tables.items():
-        if name.endswith(('_l', '_s', '_h', '_ll', '_ss', '_hh')):
-            # Remove h-tables and replace links
-            table.relink_h()
-            del_list.update(table.table_del_list)
-            table.relink_l()
-            del_list.update(table.table_del_list)
-
-
-    for name, table in tables.items():       
-        table.del_side_h_tables()
-        del_list.update(table.table_del_list)
-        
+    for name, table in tables.items():           
         table.del_loop()
+        group = ".".join(table.Module.split(sep=".")[0:2])
+        modules[group] = [table.Name] if group not in modules.keys() else modules[group] + [table.Name]
+           
+    # .info(modules)
+    
+    
+    for module, tablist in modules.items():
 
-        if not table.has_links:
-            del_list[table.Name] = "no links"
-        
-        table_groups[table.group] = [table.Name] if table.group not in table_groups.keys() else table_groups[table.group] + [table.Name]
-    
-    # logger.info(table_groups)
-    
-    
-    for group, tablist in table_groups.items():
-
-        output_file = group + ".puml"
+        output_file = module + ".puml"
 
 
         if output_file != '':            
             original_stdout = sys.stdout
             fileHandle = open(os.path.join(output_dir, output_file) , 'w')                # Change the standard output to filename
             sys.stdout = fileHandle
-        EmitPumlHeader(group, False)
+        
+        EmitPumlHeader(module, False)
         
         for tabname in tablist:
-            if tabname not in del_list.keys():
+            if not tables[tabname].Excl:
                 EmitTable("", tables[tabname])
         
         for tabname in tablist:
-            if tabname not in del_list.keys():
+            if not tables[tabname].Excl:
                 EmitRelations("", tables[tabname], True)
         
         EmitPumlFooter()
-
-
-
-
-    # Save deleted tables to file
-
-    with open(os.path.join(output_dir, "del_tables.csv"), "w") as f:
-        writer = csv.writer(f)
-        writer.writerow(["table", "substitute"])
-        for key, value in del_list.items():
-            writer.writerow([key, value])
 
     
     # Save database infostructure to CSV
