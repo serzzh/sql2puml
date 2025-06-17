@@ -12,14 +12,15 @@ logger = logging.getLogger(__name__)
 # Redefine table class
 class MyTable(Tabledef):
 
-    def __init__(self, name:str, db_name, schema, comment=None, module=None, excl=False, alias_name=None):
+    def __init__(self, name:str, db_name, schema, cyr_name="", comment=None, module=None, excl=False, alias_name=None):
         self.Name = name
+        self.CyrName = cyr_name
         self.Columns = {}
         self.Relationships = {}      # Relationdef[]
         self.CompositePK = False    
         self.RowCount = None
         # self.table_del_list = {}
-        self.LongName = module + "." + name
+        self.LongName = module + "." + (name if not cyr_name else cyr_name)
         self.has_links = False
         self.AliasName = alias_name
         self.Excl = excl
@@ -222,7 +223,7 @@ def EmitRelations(connection, table:Tabledef, colnames):
         names=''
         if colnames == True:
             names = f' : {rel.PrimaryColumn.Name}  = {rel.ForeignColumn.Name}'
-        print(f'{PumlName(rel.PrimaryTable.Name)} {rel.PumlRelation} {PumlName(rel.ForeignTable.Name)}{names}')
+        print(f'{PumlName(rel.PrimaryTable.LongName)} {rel.PumlRelation} {PumlName(rel.ForeignTable.LongName)}{names}')
 
 
 def printStderr(*a): 
@@ -258,19 +259,22 @@ def main(argv) -> None:
         csv_reader = csv.reader(ffile, delimiter=";")
         next(csv_reader, None) # Skip csv header    
         for row in csv_reader:
-            tables[row[2]] = MyTable(
-                name=row[2],
-                db_name=row[0],
-                schema=row[1],
-                comment=row[3],
-                module=row[5],
-                alias_name=row[8].replace("#N/A", ""))
-            
-            tables[row[2]].Excl = True if row[6]=='X' else False     
+            if row[8].replace("#N/A", "") == "":
+                # logger.info("БД: "+row[0]+" __ "+row[8])
+                tables[row[0]+row[2]] = MyTable(
+                    name=row[2],
+                    db_name=row[0],
+                    schema=row[1],
+                    comment=row[3],
+                    cyr_name=row[4],
+                    module=row[5],
+                    alias_name=row[7].replace("#N/A", ""))
+                
+                tables[row[0]+row[2]].Excl = True if row[6]=='X' else False     
 
     
     # only ZIIoT
-    ziiot_files = [x for x in files if x.startswith('mes_conf__zif')]
+    ziiot_files = [x for x in files if x.startswith(('mes_conf', 'ejco', 'energy', 'zmeb', 'zpas'))]
 
     
     # Output to PlantUML
@@ -290,7 +294,7 @@ def main(argv) -> None:
             for row in csv_reader:
                 # Define table
                 db_name = row[0]
-                tab_name = row[2]
+                tab_name = row[0]+row[2]
                 col = json.loads(row[4])
                 schema_name = row[1]
                 query_name = row[3]
@@ -301,6 +305,8 @@ def main(argv) -> None:
                     # Write table data to objects                   
                     if tab_name in tables:
                         table = tables[tab_name]
+                    else:
+                        continue
 
                     if col["column_name"] not in table.Columns:
                         table.Columns[col["column_name"]] = Columndef(col["column_name"], 1, "undef", 0, tab_name)
@@ -338,10 +344,11 @@ def main(argv) -> None:
             for row in csv_reader:
                 # Define table
                 db_name = row[0]
-                tab_name = row[2]
+                tab_name = row[0]+row[2]
                 col = json.loads(row[4])
                 schema_name = row[1]
-                query_name = row[3]              
+                query_name = row[3]
+                              
 
                 if tab_name in tables.keys():
                     # Relationships
@@ -349,13 +356,14 @@ def main(argv) -> None:
 
                     if query_name == "2_fks" and (table.Excl is False or tables[tab_name].AliasName):
                         
+                        # logger.info(db_name+ " Таб: " + tab_name + " Алиас: " + tables[tab_name].AliasName)
                         table = tables[tab_name] \
                         if not tables[tab_name].AliasName \
-                            else tables[tables[tab_name].AliasName]
+                            else tables[db_name+tables[tab_name].AliasName]
                         
-                        foreign_table = tables[col["foreign_table_name"]] \
-                        if not tables[col["foreign_table_name"]].AliasName \
-                            else tables[tables[col["foreign_table_name"]].AliasName]
+                        foreign_table = tables[db_name+col["foreign_table_name"]] \
+                        if not tables[db_name+col["foreign_table_name"]].AliasName \
+                            else tables[db_name+tables[db_name+col["foreign_table_name"]].AliasName]
                         
                         column = table.Columns[col["column_name"]] \
                             if col["column_name"] in table.Columns \
@@ -382,7 +390,7 @@ def main(argv) -> None:
     for name, table in tables.items():           
         table.del_loop()
         group = ".".join(table.Module.split(sep=".")[0:2])
-        modules[group] = [table.Name] if group not in modules.keys() else modules[group] + [table.Name]
+        modules[group] = [name] if group not in modules.keys() else modules[group] + [name]
            
     # .info(modules)
     
